@@ -119,6 +119,10 @@ install-master-prime: $(INFILES_MASTER) install-pre install-master
 install-node-plugins: install-plugins-prime
 
 # Some HP-UX plugins needs *.adv support files in LIBDIR
+ifneq ($(OSTYPE),hp-ux)
+HPUXONLY=true ||
+endif
+
 install-plugins-prime: install-plugins build $(PLUGINS) Makefile Makefile.config
 	@$(CHECKGROUP)
 
@@ -137,7 +141,7 @@ install-plugins-prime: install-plugins build $(PLUGINS) Makefile Makefile.config
 		$(INSTALL) -m 0755 $$p $(LIBDIR)/plugins/;     \
 	    fi                                                 \
 	done
-	-mv $(LIBDIR)/plugins/*.adv $(LIBDIR)
+	$(HPUXONLY) mv $(LIBDIR)/plugins/*.adv $(LIBDIR)
 	$(INSTALL) -m 0644 build/plugins/plugins.history $(LIBDIR)/plugins/
 	$(INSTALL) -m 0644 build/plugins/plugin.sh $(LIBDIR)/plugins/
 
