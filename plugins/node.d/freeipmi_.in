@@ -1,0 +1,98 @@
+#!@@BASH@@
+# -*- sh -*-
+
+: << =cut
+
+=head1 NAME
+
+freeipmi_ - Plugin to monitor temperature or fan speed using FreeIPMI
+
+=head1 CONFIGURATION
+
+=head2 ENVIRONMENT VARIABLES
+
+This plugin does not use environment variables
+
+=head2 WILDCARD PLUGIN
+
+This plugin should be linked as freeipmi_temp or freeipmi_fans, and
+will show either temperatures or fan speeds based on its link name.
+
+=head1 NOTE
+
+=head1 AUTHOR
+
+Diego Elio Pettenò <flameeyes@flameeyes.eu>
+Based on the work of Nicolai Langfeldt <janl@linpro.no>
+
+=head1 LICENSE
+
+GPLv2
+
+=head1 MAGIC MARKERS
+
+ #%# family=auto
+ #%# capabilities=autoconf suggest
+
+=cut
+
+#### Parse commandline to determine what the job is
+
+CONFIG=no
+
+_ipmisensors() {
+    ipmi-sensors \
+	--quiet-cache \
+	--comma-separated-output \
+	--no-header-output \
+	--ignore-not-available-sensors \
+	"$@"
+}
+
+case $1 in
+    autoconf)
+	type -p ipmi-sensors &>/dev/null || \
+	    { echo 'no (missing ipmi-sensors command)' && exit 0; }
+
+	_ipmisensors -t OS_Boot &>/dev/null || \
+	    { echo 'no (unable to access IPMI device)' && exit 0; }
+
+	echo yes
+	exit 0
+	;;
+    suggest)
+	_ipmisensors | awk -F, '
+$3 == "Temperature" { print "temp"; }
+$3 == "Fan" { print "fans"; }
+'
+	exit 0;;
+    config)
+	case $0 in
+	    *_temp)
+		echo -e "graph_title Machine temperature based on FreeIPMI\ngraph_vlabel Degrees Celcius\ngraph_category Sensors\n" ;;
+	    *_fans)
+		echo -e "graph_title Fan speeds based on FreeIPMI\ngraph_vlabel RPM\ngraph_category Sensors\n" ;;
+	esac
+	;;
+esac
+
+case $0 in
+    *_temp) TYPE=Temperature;;
+    *_fans) TYPE=Fan;;
+    *) echo "Please invoke as freeipmi_temp or freeipmi_fans" >&2
+	exit 1;;
+esac
+
+#### Work is done in this awk script
+
+_ipmisensors -t ${TYPE} | awk -F, -v CONFIG=$1 '
+CONFIG == "config" {
+    printf("ipmi%s.label %s\n", $1, $2);
+}
+
+CONFIG != "config" {
+    printf("ipmi%s.value %s\n", $1, $4);
+}
+'
+
+# vim: syntax=sh ts=4 et
