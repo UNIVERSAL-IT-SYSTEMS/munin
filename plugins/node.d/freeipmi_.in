@@ -48,25 +48,25 @@ _ipmisensors() {
 }
 
 case $0 in
-    *_temp)
+    *_temp|*_u_degrees_c)
 	title="Temperatures"
 	vlabel="degrees Celsius"
 	type=Temperature
 	unit=C
 	;;
-    *_fans)
+    *_fans|*_u_rpm)
 	title="Fan speeds"
 	vlabel="Rotations per Minute (RPM)"
 	type=Fan
 	unit=RPM
 	;;
-    *_power)
+    *_power|*_u_watts)
 	title="Power consumption"
 	vlabel="Watts"
 	type=Current
 	unit=W
 	;;
-    *_current)
+    *_current|*_u_amps)
 	title="Current drain"
 	vlabel="Amperes"
 	type=Current
