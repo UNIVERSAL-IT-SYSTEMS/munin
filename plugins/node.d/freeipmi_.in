@@ -1,4 +1,4 @@
-#!@@BASH@@
+#!@@GOODSH@@
 # -*- sh -*-
 
 : << =cut
@@ -38,8 +38,6 @@ GPLv2
 
 #### Parse commandline to determine what the job is
 
-CONFIG=no
-
 _ipmisensors() {
     ipmi-sensors \
 	--quiet-cache \
@@ -49,13 +47,50 @@ _ipmisensors() {
 	"$@"
 }
 
+case $0 in
+    *_temp)
+	title="Temperatures"
+	vlabel="degrees Celsius"
+	type=Temperature
+	unit=C
+	;;
+    *_fans)
+	title="Fan speeds"
+	vlabel="Rotations per Minute (RPM)"
+	type=Fan
+	unit=RPM
+	;;
+    *_power)
+	title="Power consumption"
+	vlabel="Watts"
+	type=Current
+	unit=W
+	;;
+    *_current)
+	title="Current drain"
+	vlabel="Amperes"
+	type=Current
+	unit=A
+	;;
+    *)
+	if [ x"$1" != x"autoconf" -a x"$1" != x"suggest" ]; then
+	    echo "Please invoke as one of the supported sensors types:" >&2
+	    echo freeipmi_{temp,fans,power,current} >&2
+	    exit 1
+	fi
+esac
+
 case $1 in
     autoconf)
-	type -p ipmi-sensors &>/dev/null || \
-	    { echo 'no (missing ipmi-sensors command)' && exit 0; }
+	if command -v ipmi-sensors >/dev/null 2>&1 ; then
+	    echo 'no (missing ipmi-sensors command)'
+	    exit 0
+	fi
 
-	_ipmisensors -t OS_Boot &>/dev/null || \
-	    { echo 'no (unable to access IPMI device)' && exit 0; }
+	if _ipmisensors -t OS_Boot >/dev/null 2>&1 ; then
+	    echo 'no (unable to access IPMI device)'
+	    exit 0
+	fi
 
 	echo yes
 	exit 0
@@ -64,34 +99,32 @@ case $1 in
 	_ipmisensors | awk -F, '
 $3 == "Temperature" { print "temp"; }
 $3 == "Fan" { print "fans"; }
+$3 == "Current" && $5 == "W" { print "power"; }
+$3 == "Current" && $5 == "A" { print "current"; }
 '
 	exit 0;;
     config)
-	case $0 in
-	    *_temp)
-		echo -e "graph_title Machine temperature based on FreeIPMI\ngraph_vlabel Degrees Celcius\ngraph_category Sensors\n" ;;
-	    *_fans)
-		echo -e "graph_title Fan speeds based on FreeIPMI\ngraph_vlabel RPM\ngraph_category Sensors\n" ;;
-	esac
+	cat - <<EOF
+graph_title ${title} based on IPMI sensors
+graph_vlabel ${vlabel}
+graph_category Sensors
+EOF
 	;;
 esac
 
-case $0 in
-    *_temp) TYPE=Temperature;;
-    *_fans) TYPE=Fan;;
-    *) echo "Please invoke as freeipmi_temp or freeipmi_fans" >&2
-	exit 1;;
-esac
-
-#### Work is done in this awk script
-
-_ipmisensors -t ${TYPE} | awk -F, -v CONFIG=$1 '
-CONFIG == "config" {
+_ipmisensors -t ${type} | awk -F, -v CONFIG=$1 -v UNIT=$unit '
+CONFIG == "config" && $5 == UNIT {
     printf("ipmi%s.label %s\n", $1, $2);
 }
 
-CONFIG != "config" {
+CONFIG != "config" && $5 == UNIT {
     printf("ipmi%s.value %s\n", $1, $4);
+}
+
+# This can only happen if FreeIPMI is new enough
+CONFIG != "config" && $5 == UNIT && $NF == 12 {
+    printf("ipmi%s.warning %s:%s\n", $8, $9);
+    printf("ipmi%s.critical %s:%s\n", $7, $10);
 }
 '
 
