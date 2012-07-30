@@ -1,11 +1,11 @@
-#!@@BASH@@
+#!@@GOODSH@@
 # -*- sh -*-
 
 : << =cut
 
 =head1 NAME
 
-ipmi_ - Plugin to monitor temperature or fan speed using IPMI
+freeipmi_ - Plugin to monitor temperature or fan speed using FreeIPMI
 
 =head1 CONFIGURATION
 
@@ -15,22 +15,19 @@ This plugin does not use environment variables
 
 =head2 WILDCARD PLUGIN
 
-This plugin should be linked as ipmi_temp or ipmi_fans, and will show
-either temperatures or fan speeds based on its link name.
+This plugin should be linked as freeipmi_temp or freeipmi_fans, and
+will show either temperatures or fan speeds based on its link name.
 
 =head1 NOTE
 
-WARNING: Munin has a 10 second default timeout on plugins.  On some
-hosts ipmitool takes longer than that to probe all your hardware.  In
-this case this plugin us unusable.
-
 =head1 AUTHOR
 
-Nicolai Langfeldt <janl@linpro.no>
+Diego Elio Pettenò <flameeyes@flameeyes.eu>
+Based on the work of Nicolai Langfeldt <janl@linpro.no>
 
 =head1 LICENSE
 
-Donated to the public domain by Nicolai Langfeldt (janl@linpro.no)
+GPLv2
 
 =head1 MAGIC MARKERS
 
@@ -41,136 +38,93 @@ Donated to the public domain by Nicolai Langfeldt (janl@linpro.no)
 
 #### Parse commandline to determine what the job is
 
-CONFIG=no
+_ipmisensors() {
+    ipmi-sensors \
+	--quiet-cache \
+	--comma-separated-output \
+	--no-header-output \
+	--ignore-not-available-sensors \
+	"$@"
+}
+
+case $0 in
+    *_temp|*_u_degrees_c)
+	title="Temperatures"
+	vlabel="degrees Celsius"
+	type=Temperature
+	unit=C
+	;;
+    *_fans|*_u_rpm)
+	title="Fan speeds"
+	vlabel="Rotations per Minute (RPM)"
+	type=Fan
+	unit=RPM
+	;;
+    *_power|*_u_watts)
+	title="Power consumption"
+	vlabel="Watts"
+	type=Current
+	unit=W
+	;;
+    *_current|*_u_amps)
+	title="Current drain"
+	vlabel="Amperes"
+	type=Current
+	unit=A
+	;;
+    *)
+	if [ x"$1" != x"autoconf" -a x"$1" != x"suggest" ]; then
+	    echo "Please invoke as one of the supported sensors types:" >&2
+	    echo freeipmi_{temp,fans,power,current} >&2
+	    exit 1
+	fi
+esac
 
 case $1 in
     autoconf)
-	type -p ipmitool &>/dev/null ||
-	  { echo 'no (missing ipmitool command)' && exit 0; }
-	
-	ipmitool sensor &>/dev/null || 
-	  { echo 'no (unable to access IPMI device)' && exit 0; }
+	if command -v ipmi-sensors >/dev/null 2>&1 ; then
+	    echo 'no (missing ipmi-sensors command)'
+	    exit 0
+	fi
+
+	if _ipmisensors -t OS_Boot >/dev/null 2>&1 ; then
+	    echo 'no (unable to access IPMI device)'
+	    exit 0
+	fi
 
 	echo yes
-        exit 0
+	exit 0
 	;;
-    suggest) echo fans
-             echo temp
-             echo power
-	     exit 0;;
-    config)  CONFIG=config;;
+    suggest)
+	_ipmisensors | awk -F, '
+$3 == "Temperature" { print "temp"; }
+$3 == "Fan" { print "fans"; }
+$3 == "Current" && $5 == "W" { print "power"; }
+$3 == "Current" && $5 == "A" { print "current"; }
+'
+	exit 0;;
+    config)
+	cat - <<EOF
+graph_title ${title} based on IPMI sensors
+graph_vlabel ${vlabel}
+graph_category Sensors
+EOF
+	;;
 esac
 
-case $0 in
-    *_temp) MEASURE=temp;;
-    *_fans) MEASURE=fans;;
-    *_power) MEASURE=power;;
-    *) echo Please invoke as ipmi_temp or ipmi_fans >&2
-       exit 1;;
-esac
-
-export CONFIG MEASURE
-
-#### Work is done in this awk script
-
-ipmitool sensor | gawk -F'|' '
-BEGIN {
-    FANS = "";
-    TEMPS = "";
-    POWER = "";
-    CFANS = "graph_title Fan speeds based on IPMI\ngraph_vlabel RPM\ngraph_category Sensors\n";
-    CTEMPS = "graph_title Machine temperature based on IPMI\ngraph_vlabel Degrees celcius\ngraph_category Sensors\n";
-    CPOWER = "graph_title Power usage based on IPMI\ngraph_vlabel W\ngraph_category Sensors\n";
+_ipmisensors -t ${type} | awk -F, -v CONFIG=$1 -v UNIT=$unit '
+CONFIG == "config" && $5 == UNIT {
+    printf("ipmi%s.label %s\n", $1, $2);
 }
 
-# Remove extraneous spaces to make output prettyer
-{ gsub(/\t/," "); gsub(/ +/," "); gsub(/ +\|/,"|"); gsub(/\| +/,"|") }
-
-# Skip lines with 0x0 in first column
-/^[^|]+\|0x0\|/ { next; };
-
-# Skip lines with na in first column
-/^[^|]+\|na\|/ { next; };
-
-# Parse temperatures
-/degrees C/ {
-	NAME=THING=$1;
-	gsub(/[^A-Za-z0-9]/,"",NAME);
-	TEMP=$2;
-
-	# Find unique name
-	while (NAMES[NAME] >= 1) {
-	    NAME=sprintf("%si",NAME);
-	}
-	NAMES[NAME]=1;
-
-	WARN=$8;
-	CRIT=$9;
-
-	TEMPS = sprintf("%s%s.value %s\n",TEMPS,NAME,TEMP);
-	CTEMPS = sprintf("%s%s.label %s\n",CTEMPS,NAME,THING);
-
-	if (CRIT !~ /na/) {
-		CTEMPS = sprintf("%s%s.critical 0:%s\n",CTEMPS,NAME,CRIT);
-	}
-
-	if (WARN !~ /na/) {
-		CTEMPS = sprintf("%s%s.warning 0:%s\n",CTEMPS,NAME,WARN);
-	}
+CONFIG != "config" && $5 == UNIT {
+    printf("ipmi%s.value %s\n", $1, $4);
 }
 
-/RPM/ { 
-        NAME=THING=$1;
-	gsub(/[^A-Za-z0-9]/,"",NAME);
-	SPEED=$2;
-
-	# Find unique name
-	while (NAMES[NAME] >= 1) {
-	    NAME=sprintf("%si",NAME);
-	}
-	NAMES[NAME]=1;
-
-	FANS = sprintf("%s%s.value %s\n",FANS,NAME,SPEED);
-	CFANS = sprintf("%s%s.label %s\n",CFANS,NAME,THING);
-
-	OK=$4;
-
-	MIN=$6;
-	if (MIN !~ /na/) {
-		CFANS = sprintf("%s%s.warning %s:\n",CFANS,NAME,MIN);
-	}
-}
-
-/Watts/ {
-    NAME=THING=$1;
-    gsub(/[^A-Za-z0-9]/,"",NAME);
-    WATTS=$2;
-
-    # Find unique name
-    while (NAMES[NAME] >= 1) {
-        NAME=sprintf("%si",NAME);
-    }
-    NAMES[NAME]=1;
-
-    POWER = sprintf("%s%s.value %s\n",POWER,NAME,WATTS);
-    CPOWER = sprintf("%s%s.label %s\n",CPOWER,NAME,THING);
-}
-
-END {
-    if (ENVIRON["MEASURE"] == "temp") {
-        VALUE=TEMPS;
-        CONFIG=CTEMPS;
-    } else if (ENVIRON["MEASURE"] == "power") {
-        VALUE=POWER;
-        CONFIG=CPOWER;
-    } else {
-        VALUE=FANS;
-        CONFIG=CFANS;
-    }
-    if (ENVIRON["CONFIG"] == "config")
-        printf "%s",CONFIG;
-    else
-        printf "%s",VALUE;
+# This can only happen if FreeIPMI is new enough
+CONFIG != "config" && $5 == UNIT && $NF == 12 {
+    printf("ipmi%s.warning %s:%s\n", $8, $9);
+    printf("ipmi%s.critical %s:%s\n", $7, $10);
 }
 '
 
