@@ -23,7 +23,8 @@ two options you can select your sensors:
  - fans;
  - temp;
  - power;
- - current.
+ - current;
+ - voltage.
 
 When used for the local host, the plugin should be linked as, e.g.,
 'ipmi_temp', whereas when used to monitor a foreign host it should be,
@@ -33,8 +34,9 @@ e.g., 'ipmi_192.168.0.253_temp'.
 
 =head1 AUTHOR
 
-Diego Elio Pettenò <flameeyes@flameeyes.eu>
-Based on the work of Nicolai Langfeldt <janl@linpro.no>
+Rewritten by Diego Elio Pettenò <flameeyes@flameeyes.eu>.
+Based on the work of Nicolai Langfeldt <janl@linpro.no>, Logilab and
+Peter Palfrader.
 
 =head1 LICENSE
 
@@ -96,6 +98,11 @@ case $0 in
 	type=Current
 	unit=A
 	;;
+    *_voltage|*_u_volts)
+	title="Voltages"
+	vlabel="Volts"
+	type=Voltage
+	unit=V
     *)
 	if [ x"$1" != x"autoconf" -a x"$1" != x"suggest" ]; then
 	    echo "Please invoke as one of the supported sensors types:" >&2
@@ -125,6 +132,7 @@ $3 == "Temperature" { print "temp"; }
 $3 == "Fan" { print "fans"; }
 $3 == "Current" && $5 == "W" { print "power"; }
 $3 == "Current" && $5 == "A" { print "current"; }
+$3 == "Voltage" { print "voltage"; }
 '
 	exit 0;;
     config)
