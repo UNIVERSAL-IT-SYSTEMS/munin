@@ -11,12 +11,23 @@ freeipmi_ - Plugin to monitor temperature or fan speed using FreeIPMI
 
 =head2 ENVIRONMENT VARIABLES
 
-This plugin does not use environment variables
+When used to monitor a foreign host, this plugins use the variables
+IPMI_USERNAME and IPMI_PASSWORD to log in on the remote system.
 
 =head2 WILDCARD PLUGIN
 
-This plugin should be linked as freeipmi_temp or freeipmi_fans, and
-will show either temperatures or fan speeds based on its link name.
+You can monitor either the current system (via /dev/ipmi0 and the
+like) or a remote system (via the LAN protocols), and for each of the
+two options you can select your sensors:
+
+ - fans;
+ - temp;
+ - power;
+ - current.
+
+When used for the local host, the plugin should be linked as, e.g.,
+'ipmi_temp', whereas when used to monitor a foreign host it should be,
+e.g., 'ipmi_192.168.0.253_temp'.
 
 =head1 NOTE
 
@@ -39,13 +50,26 @@ GPLv2
 #### Parse commandline to determine what the job is
 
 _ipmisensors() {
-    ipmi-sensors \
-	--quiet-cache \
-	--comma-separated-output \
-	--no-header-output \
-	--ignore-not-available-sensors \
-	"$@"
+    params="--quiet-cache --comma-separated-output --no-header-output --ignore-not-available-sensors"
+    if [ "x${hostname}" != "x" ]; then
+	params="${params} --hostname=${hostname}"
+	[ "x${IPMI_USERNAME}" != "x" ] && params="${params} --username=${IPMI_USERNAME}"
+	[ "x${IPMI_PASSWORD}" != "x" ] && params="${params} --password=${IPMI_PASSWORD}"
+    fi
+
+    if ! ipmi-sensors ${params} --output-sensor-thresholds "$@"; then
+	ipmi-sensors ${params} "$@"
+    fi
 }
+
+# extract and eventual hostname out of the called name; we
+# have to check whether it's set to "u" as that's what happens
+# when the compatibility with ipmi_sensor_ is used.
+hostname1=${0#*_}
+hostname=${hostname1%%_*}
+if [ "x${hostname}" = "xu" -o "x${hostname}" = "x${hostname1}" ]; then
+    hostname=""
+fi
 
 case $0 in
     *_temp|*_u_degrees_c)
@@ -82,12 +106,12 @@ esac
 
 case $1 in
     autoconf)
-	if command -v ipmi-sensors >/dev/null 2>&1 ; then
+	if ! command -v ipmi-sensors >/dev/null 2>&1 ; then
 	    echo 'no (missing ipmi-sensors command)'
 	    exit 0
 	fi
 
-	if _ipmisensors -t OS_Boot >/dev/null 2>&1 ; then
+	if ! _ipmisensors -t OS_Boot >/dev/null 2>&1 ; then
 	    echo 'no (unable to access IPMI device)'
 	    exit 0
 	fi
@@ -109,22 +133,37 @@ graph_title ${title} based on IPMI sensors
 graph_vlabel ${vlabel}
 graph_category Sensors
 EOF
+
+	if [ "x${hostname}" != "x" ]; then
+	    echo "host_name ${hostname}"
+	fi
 	;;
 esac
 
 _ipmisensors -t ${type} | awk -F, -v CONFIG=$1 -v UNIT=$unit '
-CONFIG == "config" && $5 == UNIT {
-    printf("ipmi%s.label %s\n", $1, $2);
-}
+$5 == UNIT {
+    if ( CONFIG == "config" ) {
+      printf("ipmi%s.label %s\n", $1, $2);
+    } else {
+      printf("ipmi%s.value %s\n", $1, $4);
 
-CONFIG != "config" && $5 == UNIT {
-    printf("ipmi%s.value %s\n", $1, $4);
-}
+      # This can only happen if FreeIPMI is new enough
+      if ( NF == 12 ) {
+        if ( $9 != "N/A" && $10 != "N/A" )
+          printf("ipmi%s.warning %s:%s\n", $1, $8, $10);
+        else if ( $8 == "N/A" && $10 != "N/A" )
+          printf("ipmi%s.warning :%s\n", $1, $10);
+        else if ( $8 != "N/A" && $10 == "N/A" )
+          printf("ipmi%s.warning %s:\n", $1, $8);
 
-# This can only happen if FreeIPMI is new enough
-CONFIG != "config" && $5 == UNIT && $NF == 12 {
-    printf("ipmi%s.warning %s:%s\n", $8, $9);
-    printf("ipmi%s.critical %s:%s\n", $7, $10);
+        if ( $7 != "N/A" && $11 != "N/A" )
+          printf("ipmi%s.critical %s:%s\n", $1, $7, $11);
+        else if ( $7 == "N/A" && $11 != "N/A" )
+          printf("ipmi%s.critical :%s\n", $1, $11);
+        else if ( $7 != "N/A" && $11 == "N/A" )
+          printf("ipmi%s.critical %s:\n", $1, $7);
+      }
+  }
 }
 '
 
