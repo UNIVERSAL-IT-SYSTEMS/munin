@@ -151,14 +151,14 @@ esac
 
 _ipmisensors -t ${type} | awk -F, -v CONFIG=$1 -v UNIT=$unit '
 $5 == UNIT {
-    if ( CONFIG == "config" ) {
-      printf("ipmi%s.label %s\n", $1, $2);
-    } else {
+    if ( CONFIG != "config" ) {
       printf("ipmi%s.value %s\n", $1, $4);
+    } else {
+      printf("ipmi%s.label %s\n", $1, $2);
 
       # This can only happen if FreeIPMI is new enough
       if ( NF == 12 ) {
-        if ( $9 != "N/A" && $10 != "N/A" )
+        if ( $8 != "N/A" && $10 != "N/A" )
           printf("ipmi%s.warning %s:%s\n", $1, $8, $10);
         else if ( $8 == "N/A" && $10 != "N/A" )
           printf("ipmi%s.warning :%s\n", $1, $10);
