@@ -103,6 +103,7 @@ case $0 in
 	vlabel="Volts"
 	type=Voltage
 	unit=V
+	;;
     *)
 	if [ x"$1" != x"autoconf" -a x"$1" != x"suggest" ]; then
 	    echo "Please invoke as one of the supported sensors types:" >&2
