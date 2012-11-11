@@ -141,15 +141,20 @@ sub _do_connect {
 	    die "[ERROR] Got unknown reply from node ".$self->{host}."\n";
 	}
 
-	if ($greeting =~ /\#.*(?:lrrd|munin) (?:client|node) at (\S+)/i) {
-	    $self->{node_name} = $1;
-	}
+	$self->_extract_name_from_greeting($greeting);
     };
 
     INFO "[INFO] node $self->{host} advertised itself as $self->{node_name} instead." if $self->{node_name} && $self->{node_name} ne $self->{host};
 
     return 1;
 }
+
+sub _extract_name_from_greeting {
+    my ($self, $greeting) = @_;
+    if ($greeting =~ /\#.*(?:lrrd|munin) (?:client|node) at (\S+)/i) {
+	$self->{node_name} = $1;
+    }
+ }
 
 sub _run_starttls_if_required {
     my ($self) = @_;
